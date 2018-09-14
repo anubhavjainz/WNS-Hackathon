@@ -1,0 +1,369 @@
+############ Importing the required libraries
+library(dplyr)
+library(ggplot2) #for the exploratory data analysis
+
+library(ROCR) # ROCR model validation
+#Decision Tree Libraries
+library(irr)
+library(rpart)
+library(caret)
+#Tree plotting
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+
+##Random Forest Libraries
+library(randomForest)
+
+
+setwd("D:\\WNS HACKATHON")
+
+getwd()
+
+TTrain<-read.csv("train_LZdllcl.csv",header = T,sep = ",",na.strings = "")
+TTest<-read.csv("test_2umaH9m.csv",header = T,sep = ",",na.strings = "")
+
+TTrain$Set<-"Train"
+TTest$Set<-"TTest"
+
+names(TTrain)
+
+TTest$is_promoted<-NA
+
+Full<-rbind(TTrain,TTest)
+
+
+########### Exploratory data analysis
+str(Full)
+summary(Full)
+
+#previous_year_rating  has 5936 missing values
+
+
+hist(Full$age)
+boxplot(Full$age)
+
+ggplot(data=TTrain,mapping=aes(x=age,fill=as.factor(is_promoted),alpha=0.2))+geom_density()+scale_x_continuous(limit=c(0,100))
+
+
+quantile(Full$age,na.rm = T)
+median(Full$Age,na.rm = T)
+
+
+plot(as.factor(TTrain$Sex),as.factor(TTrain$Survived))
+
+plot(as.factor(TTrain$Pclass),as.factor(TTrain$Survived))
+
+cor(TTrain$Fare,TTrain$Pclass)
+
+histogram(Full$Fare)
+ggplot(data=Full,mapping=aes(x=Fare))+geom_density()+scale_x_continuous(limit=c(0,100))
+
+#Embarked might not be important variable as boarding point may not decide a people will die or not
+
+############### Data Preparation
+
+###### replacing Age with the median value
+
+Full$is_promoted<-as.factor(Full$is_promoted)
+
+
+Full$awards_won.<-as.factor(Full$awards_won.)
+
+
+Full$gender<-as.factor(ifelse(Full$gender=="m",1,0))
+names(Full)
+
+Full$KPIs_met..80.<-as.factor(Full$KPIs_met..80.)
+
+Full$previous_year_rating<-ordered(Full$previous_year_rating)
+
+summary(Full$previous_year_rating)
+
+levels(Full$education)
+
+Full$education_B<-ifelse(Full$education=="Bachelor's",1,0)
+Full$education_BS<-ifelse(Full$education=="Below Secondary",1,0)
+Full$education_M<-ifelse(Full$education=="Master's & above",1,0)
+
+
+hist(Full$length_of_service,breaks = 30)
+
+Full$SERVICE_ONE<-ifelse(Full$length_of_service==1,1,0)
+
+Full$SERVICE_TWO<-ifelse(Full$length_of_service>=2 & Full$length_of_service<=7,1,0)
+
+Full$SERVICE_EIGHT<-ifelse(Full$length_of_service>=8 & Full$length_of_service<=10,1,0)
+
+Full$SERVICE_TEN<-ifelse(Full$length_of_service>11 & Full$length_of_service<=20,1,0)
+
+Full$SERVICE_TWENTY<-ifelse(Full$length_of_service>20,1,0)
+
+Full$Rating_1<-ifelse(Full$previous_year_rating==1,1,0)
+Full$Rating_2<-ifelse(Full$previous_year_rating==2,1,0)
+Full$Rating_3<-ifelse(Full$previous_year_rating==3,1,0)
+Full$Rating_4<-ifelse(Full$previous_year_rating==4,1,0)
+Full$Rating_5<-ifelse(Full$previous_year_rating==5,1,0)
+
+names(Full)
+
+Full[, 16:28][is.na(Full[, 16:28])] <- 0
+
+
+
+#################### Spliting Train, Validation and Test DataSet
+set.seed(100)
+index<-sample(x = 1:nrow(TTrain),size = 0.8*nrow(TTrain),replace = F)
+Train<-Full[Full$Set=="Train",]
+
+Validate<-Train[-index,]
+Train<-Train[index,]
+Test<-Full[Full$Set=="TTest",]
+
+#################### Applying Decision Tree Model for initial understanding of Parameters
+mod<-rpart(is_promoted~gender+no_of_trainings+age+KPIs_met..80.+awards_won.+avg_training_score+education_B+education_M+education_BS+SERVICE_ONE+SERVICE_TWO+SERVICE_EIGHT+SERVICE_TEN+SERVICE_TWENTY+Rating_1+Rating_2+Rating_3+Rating_4+Rating_5,data=Train,control=rpart.control(cp=0.002,maxdepth=7),method="class",parms=list(split="gini"))
+
+mod
+#Visualization of Model
+fancyRpartPlot(mod)
+summary(mod)
+printcp(mod)
+plotcp(mod, minline = TRUE)
+
+### Model Pruning
+mod1<-prune(mod,cp= 0.026)
+
+fancyRpartPlot(mod1)
+
+
+#### Model Accuracy on the Train Data Itself
+actual<-Train$is_promoted
+predicted<-predict(mod,type = "class")
+actual<-as.factor(actual)
+
+#### Kappa Metric
+kappa2(data.frame(actual,predicted))
+
+#Confusion Matric
+confusionMatrix(predicted,actual,positive="1")
+
+#ROCR curve and AUC value
+head(predicted)
+head(as.numeric(predicted))
+predicted<-as.numeric(predicted)
+predicted<-ifelse(predicted==2,1,0)
+
+head(actual)
+head(as.numeric(actual))
+actual<-as.numeric(actual)
+actual<-ifelse(actual==2,1,0)
+
+pred<-prediction(actual,predicted)
+perf<-performance(pred,"tpr","fpr")
+plot(perf,col="red")
+abline(0,1, lty = 8, col = "grey")
+
+auc<-performance(pred,"auc")
+unlist(auc@y.values)
+
+################ Testing on the Validation DataSet
+
+actual<-Validate$is_promoted
+predicted<-predict(mod,type = "class",newdata = Validate)
+actual<-as.factor(actual)
+
+#### Kappa Metric
+kappa2(data.frame(actual,predicted))
+
+#Confusion Matric
+confusionMatrix(predicted,actual,positive="1")
+
+#ROCR curve and AUC value
+head(predicted)
+head(as.numeric(predicted))
+predicted<-as.numeric(predicted)
+predicted<-ifelse(predicted==2,1,0)
+
+head(actual)
+head(as.numeric(actual))
+actual<-as.numeric(actual)
+actual<-ifelse(actual==2,1,0)
+
+pred<-prediction(actual,predicted)
+perf<-performance(pred,"tpr","fpr")
+plot(perf,col="red")
+abline(0,1, lty = 8, col = "grey")
+
+auc<-performance(pred,"auc")
+unlist(auc@y.values)
+
+
+
+
+
+
+
+
+########################### Using the Logistic Regression Model
+######## Logistic regression
+
+
+mod1<-glm(formula = is_promoted~gender+no_of_trainings+age+KPIs_met..80.+awards_won.+avg_training_score+education_B+education_M+education_BS+SERVICE_ONE+SERVICE_TWO+SERVICE_EIGHT+SERVICE_TEN+SERVICE_TWENTY+Rating_1+Rating_2+Rating_3+Rating_4+Rating_5, family = "binomial", data = Train)
+mod1
+summary(mod1)
+#### Model Accuracy on the Train Data Itself
+actual<-Train$is_promoted
+pred<-predict(mod1,type="response")
+
+table(Train$is_promoted)/nrow(Train)
+
+predicted<-ifelse(pred>0.91,1,0)
+actual<-as.factor(actual)
+predicted<-as.factor(predicted)
+
+#### Kappa Metric
+kappa2(data.frame(actual,predicted))
+
+#Confusion Matric
+confusionMatrix(predicted,actual,positive="1")
+
+#ROCR curve and AUC value
+head(predicted)
+head(as.numeric(predicted))
+predicted<-as.numeric(predicted)
+predicted<-ifelse(predicted==2,1,0)
+
+head(actual)
+head(as.numeric(actual))
+actual<-as.numeric(actual)
+actual<-ifelse(actual==2,1,0)
+
+pred<-prediction(actual,predicted)
+perf<-performance(pred,"tpr","fpr")
+plot(perf,col="red")
+abline(0,1, lty = 8, col = "grey")
+
+auc<-performance(pred,"auc")
+unlist(auc@y.values)
+
+################ Testing on the Validation DataSet
+
+actual<-Validate$is_promoted
+predicted<-predict(mod1,type = "response",newdata = Validate)
+
+predicted<-ifelse(predicted>0.91,1,0)
+actual<-as.factor(actual)
+predicted<-as.factor(predicted)
+
+#### Kappa Metric
+kappa2(data.frame(actual,predicted))
+
+#Confusion Matric
+confusionMatrix(predicted,actual,positive="1")
+
+#ROCR curve and AUC value
+head(predicted)
+head(as.numeric(predicted))
+predicted<-as.numeric(predicted)
+predicted<-ifelse(predicted==2,1,0)
+
+head(actual)
+head(as.numeric(actual))
+actual<-as.numeric(actual)
+actual<-ifelse(actual==2,1,0)
+
+pred<-prediction(actual,predicted)
+perf<-performance(pred,"tpr","fpr")
+plot(perf,col="red")
+abline(0,1, lty = 8, col = "grey")
+
+auc<-performance(pred,"auc")
+unlist(auc@y.values)
+
+
+
+
+########################################### Using Random Forest Algorithm
+
+model1 <- randomForest(formula = Survived~Sex_Male+Sex_Female+Pclass_1+Pclass_2+Pclass_3+Age,ntree = 500, data = Train, importance = TRUE)
+model1
+a=c()
+i=5
+for (i in 3:6) {
+  model3 <- randomForest(formula = Survived~Sex_Male+Sex_Female+Pclass_1+Pclass_2+Pclass_3+Age,ntree = 500,mtry=i, data = Train, importance = TRUE)
+  predValid <- predict(model3, Validate, type = "class")
+  a[i-2] = mean(predValid == Validate$Survived)
+}
+
+a
+
+plot(3:6,a)
+
+
+######max accuracy at mtry=3
+model1 <- randomForest(formula = Survived~Sex_Male+Sex_Female+Pclass_1+Pclass_2+Pclass_3+Age,ntree = 500,mtry=3, data = Train, importance = TRUE)
+model1
+
+
+#### Model Accuracy on the Train Data Itself
+actual<-Train$Survived
+predicted<-predict(model1,type = "class")
+actual<-as.factor(actual)
+
+#### Kappa Metric
+kappa2(data.frame(actual,predicted))
+
+#Confusion Matric
+confusionMatrix(predicted,actual,positive="1")
+
+#ROCR curve and AUC value
+head(predicted)
+head(as.numeric(predicted))
+predicted<-as.numeric(predicted)
+predicted<-ifelse(predicted==2,1,0)
+
+head(actual)
+head(as.numeric(actual))
+actual<-as.numeric(actual)
+actual<-ifelse(actual==2,1,0)
+
+pred<-prediction(actual,predicted)
+perf<-performance(pred,"tpr","fpr")
+plot(perf,col="red")
+abline(0,1, lty = 8, col = "grey")
+
+auc<-performance(pred,"auc")
+unlist(auc@y.values)
+
+################ Testing on the Validation DataSet
+
+actual<-Validate$Survived
+predicted<-predict(model1,type = "class",newdata = Validate)
+actual<-as.factor(actual)
+
+#### Kappa Metric
+kappa2(data.frame(actual,predicted))
+
+#Confusion Matric
+confusionMatrix(predicted,actual,positive="1")
+
+#ROCR curve and AUC value
+head(predicted)
+head(as.numeric(predicted))
+predicted<-as.numeric(predicted)
+predicted<-ifelse(predicted==2,1,0)
+
+head(actual)
+head(as.numeric(actual))
+actual<-as.numeric(actual)
+actual<-ifelse(actual==2,1,0)
+
+pred<-prediction(actual,predicted)
+perf<-performance(pred,"tpr","fpr")
+plot(perf,col="red")
+abline(0,1, lty = 8, col = "grey")
+
+auc<-performance(pred,"auc")
+unlist(auc@y.values)
+
+
